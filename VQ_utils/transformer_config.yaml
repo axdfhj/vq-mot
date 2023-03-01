@@ -1,0 +1,19 @@
+diffusion_step: 100
+alpha_init_type: 'alpha1'       # init_type = fix or cos or linear 
+auxiliary_loss_weight: 5.0e-4
+adaptive_auxiliary_loss: True
+mask_weight: [1, 1]    # the loss weight on mask region and non-mask region
+transformer_config:
+  attn_type: 'selfcross'
+  n_layer: 15
+  condition_seq_len: 77    ###### 77 for clip and 256 for dalle
+  content_seq_len: 50  # 32 x 32
+  content_spatial_size: [1, 50]
+  n_embd: 1024 # the dim of embedding dims
+  condition_dim: 512
+  n_head: 16 # 
+  attn_pdrop: 0.0
+  resid_pdrop: 0.0
+  block_activate: GELU2
+  timestep_type: 'adalayernorm'    # adainsnorm or adalayernorm and abs
+  mlp_hidden_times: 4
