@@ -1,5 +1,6 @@
 import torch
 from utils.quaternion import quaternion_to_cont6d, qrot, qinv
+import pdb
 
 def recover_root_rot_pos(data):
     rot_vel = data[..., 0]
@@ -8,11 +9,11 @@ def recover_root_rot_pos(data):
     r_rot_ang[..., 1:] = rot_vel[..., :-1]
     r_rot_ang = torch.cumsum(r_rot_ang, dim=-1)
 
-    r_rot_quat = torch.zeros(data.shape[:-1] + (4,))
+    r_rot_quat = torch.zeros(data.shape[:-1] + (4,)).cuda()
     r_rot_quat[..., 0] = torch.cos(r_rot_ang)
     r_rot_quat[..., 2] = torch.sin(r_rot_ang)
 
-    r_pos = torch.zeros(data.shape[:-1] + (3,))
+    r_pos = torch.zeros(data.shape[:-1] + (3,)).cuda()
     r_pos[..., 1:, [0, 2]] = data[..., :-1, 1:3]
     '''Add Y-axis rotation to root position'''
     r_pos = qrot(qinv(r_rot_quat), r_pos)

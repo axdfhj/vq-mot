@@ -1,5 +1,5 @@
 python3 train.py  \
---exp-name get_config \
+--exp-name train_larger \
 --batch-size 128 \
 --nb-code 512 \
 --resume-pth output/VQVAE/net_last.pth \
@@ -14,4 +14,5 @@ python3 train.py  \
 --quantizer ema_reset \
 --dilation-growth-rate 3 \
 --vq-act relu \
+--epoch 900 \
 --nodebug

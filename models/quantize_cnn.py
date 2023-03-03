@@ -32,13 +32,13 @@ class QuantizeEMAReset(nn.Module):
         out = self._tile(x)
         self.codebook = out[:self.nb_code]
         self.code_sum = self.codebook.clone()
-        self.code_count = torch.ones(self.nb_code)
+        self.code_count = torch.ones(self.nb_code).cuda()
         self.init = True
         
     @torch.no_grad()
     def compute_perplexity(self, code_idx) : 
         # Calculate new centres
-        code_onehot = torch.zeros(self.nb_code, code_idx.shape[0])  # nb_code, N * L
+        code_onehot = torch.zeros(self.nb_code, code_idx.shape[0]).cuda()  # nb_code, N * L
         code_onehot.scatter_(0, code_idx.view(1, code_idx.shape[0]), 1)
 
         code_count = code_onehot.sum(dim=-1)  # nb_code
@@ -49,7 +49,7 @@ class QuantizeEMAReset(nn.Module):
     @torch.no_grad()
     def update_codebook(self, x, code_idx):
         
-        code_onehot = torch.zeros(self.nb_code, x.shape[0])  # nb_code, N * L
+        code_onehot = torch.zeros(self.nb_code, x.shape[0]).cuda()  # nb_code, N * L
         code_onehot.scatter_(0, code_idx.view(1, x.shape[0]), 1)
 
         code_sum = torch.matmul(code_onehot, x)  # nb_code, w

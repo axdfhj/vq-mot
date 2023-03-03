@@ -41,10 +41,9 @@ def get_args_parser():
     parser.add_argument('--quantbeta', type=float, default=1.0, help='dataset directory')
 
     ## resume
-    parser.add_argument("--resume-pth", type=str, default=None, help='resume vq pth')
-    parser.add_argument("--resume-trans", type=str, default=None, help='resume gpt pth')
-    
-    
+    parser.add_argument("--resume-pth", type=str, default=None, help='resume vq pth')    
+    parser.add_argument('--resume_trans', default=None, type=str, help='resume checkpoint of denoiser')
+
     ## output directory 
     parser.add_argument('--out-dir', type=str, default='output_GPT_Final/', help='output directory')
     parser.add_argument('--exp-name', type=str, default='exp_debug', help='name of the experiment, will create a file inside out-dir')
@@ -55,6 +54,7 @@ def get_args_parser():
     parser.add_argument("--if-maxtest", action='store_true', help="test in max")
     parser.add_argument('--nodebug', action='store_true')
     parser.add_argument('--val-every-epoch', default=25, type=int, help='validation every n train epoch')
-    
+    parser.add_argument('--epoch', default=600, type=int, help='training epochs')
+
     
     return parser.parse_args()

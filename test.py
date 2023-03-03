@@ -30,7 +30,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok = True)
     trans_config = args.trans_config
     scheduler_config = args.scheduler_config
-    pl.seed_everything(args.seed)
+    # pl.seed_everything(args.seed)
     ##### ---- log ---- #####    
     logger = utils_model.get_logger(args.out_dir)
     wandb_logger = pl_loggers.WandbLogger(
@@ -74,6 +74,16 @@ def main():
         r3_list.append(epoch_result['r3'])
         matching_score_pred_list.append(epoch_result['matching_score'])
         # multimodality_list.append(epoch_result['multimodality'])
+        print(f'rep {rep} result:')
+        print('fid: ', fid_list[-1])
+        print('diversity: ', diversity_list[-1])
+        print('r1: ', r1_list[-1])
+        print('r2: ', r2_list[-1])
+        print('r3: ', r3_list[-1])
+        print('matching_score: ', matching_score_pred_list[-1])
+        msg_rep = f"rep {rep} result: FID. {np.mean(fid_list[-1]):.3f}, Diversity. {np.mean(diversity_list[-1]):.3f}, TOP1. {np.mean(r1_list[-1]):.3f}, TOP2. {np.mean(r2_list[-1]):.3f}, TOP3. {np.mean(r3_list[-1]):.3f}, Matching. {np.mean(matching_score_pred_list[-1]):.3f}\n"
+        logger.info(msg_rep)
+
     print('final result:')
     print('fid: ', sum(fid_list)/opt.replication_times)
     print('diversity: ', sum(diversity_list)/opt.replication_times)

@@ -1,53 +1,38 @@
 import pytorch_lightning as pl
+import numpy as np
 import torch
 import clip
 import models.vqvae as vqvae
 from options.get_eval_option import get_opt
 import utils.utils_model as utils_model
+import utils.losses as losses
 from models.evaluator_wrapper import EvaluatorModelWrapper
-import yaml
-from VQ_utils.diffusion_transformer import DiffusionTransformer
-from VQ_utils.lr_scheduler import ReduceLROnPlateauWithWarmup
 from VQ_utils.clip_grad_norm import ClipGradNorm
 from utils.eval_trans import calculate_R_precision, calculate_activation_statistics, calculate_diversity, calculate_frechet_distance, calculate_multimodality
+from utils.motion_process import recover_from_ric
 import pdb
 import os
+from os.path import join as pjoin
 
-class vq_diffusion(pl.LightningModule):
+class vq_vae(pl.LightningModule):
     def __init__(
         self,
-        args, trans_config, scheduler_config) -> None:
+        args) -> None:
         
         super().__init__()
+        self.args = args
         dataset_opt_path = 'checkpoints/kit/Comp_v6_KLD005/opt.txt' if args.dataname == 'kit' else 'checkpoints/t2m/Comp_v6_KLD005/opt.txt'
-
-        self.clip_model, clip_preprocess = clip.load("ViT-B/32", device=torch.device('cuda'), jit=False)  # Must set jit=False for training
         wrapper_opt = get_opt(dataset_opt_path, args.nodebug)
         self.eval_wrapper = EvaluatorModelWrapper(wrapper_opt)
-        clip.model.convert_weights(self.clip_model)  # Actually this line is unnecessary since clip by default already on float16
-        self.clip_model.eval()
-        for p in self.clip_model.parameters():
-            p.requires_grad = False
-        self.net = vqvae.HumanVQVAE(args)
-        trans_config['nb_code'] = args.nb_code # nb_code + 1
-        self.denoiser = DiffusionTransformer(**trans_config) #改成 diffusion denoiser
-        if args.nodebug:
-            print ('loading checkpoint from {}'.format(args.resume_pth))
-            ckpt = torch.load(args.resume_pth, map_location='cpu')
-            self.net.load_state_dict(ckpt['net'], strict=True)
-        self.net.eval()
-        self.net = self.net.cuda()
-        
+        meta_dir = 'checkpoints/kit/VQVAEV3_CB1024_CMT_H1024_NRES3/meta' if args.dataname == 'kit' else 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
+        self.mean = np.load(pjoin(meta_dir, 'mean.npy'))
+        self.std = np.load(pjoin(meta_dir, 'std.npy'))
+        self.net = vqvae.HumanVQVAE(args).cuda()   
         self.save_path = os.path.join(args.out_dir, 'checkpoints')
-        
-        if args.resume_trans is not None:
-            print ('loading transformer checkpoint from {}'.format(args.resume_trans))
-            ckpt = torch.load(args.resume_trans, map_location='cpu')
-            self.denoiser.load_state_dict(ckpt['net'], strict=True)
-        self.denoiser = self.denoiser.cuda()
-        self.optimizer = utils_model.initial_optim(args.decay_option, args.lr, args.weight_decay, self.denoiser, args.optimizer)
-        self.scheduler = ReduceLROnPlateauWithWarmup(self.optimizer, **scheduler_config)
+        self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=args.weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=args.lr_scheduler, gamma=args.gamma)
         self.clip_grad_norm = ClipGradNorm(start_iteration=0, end_iteration=5000, max_norm=0.5)
+        self.Loss = losses.ReConsLoss(args.recons_loss, args.nb_joints)
         self.automatic_optimization = False
         self.save_hyperparameters()
         self.evaluation_epoch_init()
@@ -66,61 +51,55 @@ class vq_diffusion(pl.LightningModule):
         return {"optimizer":self.optimizer}
     
     def manual_backward(self, loss):
+        if self.global_step <= self.args.warm_up_iter:
+            current_lr = self.args.lr * (self.global_step + 1) / (self.args.warm_up_iter + 1)
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = current_lr
         self.optimizer.zero_grad()
         loss.backward()
-        self.clip_grad_norm(self.denoiser.parameters())
+        self.clip_grad_norm(self.net.parameters())
         self.optimizer.step()
-        self.scheduler.step(loss)
+        if self.global_step <= self.args.warm_up_iter:
+            self.scheduler.step()
         
     def training_step(self, batch, batch_idx):
-        clip_text, m_tokens, m_tokens_len = batch
-        m_tokens, m_tokens_len = m_tokens.cuda(), m_tokens_len.cuda()
-        bs = m_tokens.shape[0]
-        target = m_tokens    # (bs, 26)
-        target = target.cuda()
+        gt_motion = batch.cuda().float() # bs, nb_joints, joints_dim, seq_len
+        pred_motion, loss_commit, perplexity = self.net(gt_motion)
+        loss_motion = self.Loss(pred_motion, gt_motion)
+        loss_vel = self.Loss.forward_vel(pred_motion, gt_motion)
         
-        text = clip.tokenize(clip_text, truncate=True).cuda()
-        feat_clip_text = self.clip_model.encode_text(text).float()
-        input_index = target[:,:-1]
-        # denoise
-        log_model_prob, loss = self.denoiser._train_loss(x=input_index, cond_emb=feat_clip_text, is_train=True, length=m_tokens_len)
+        loss = loss_motion + self.args.commit * loss_commit + self.args.loss_vel * loss_vel
         self.log("train_loss", loss)
         self.manual_backward(loss)
-        
         return loss
     
+    def inv_transform(self, data):
+        return data * self.std + self.mean
+    
     def evaluation_step(self, batch, mm=False):
-        word_embeddings, pos_one_hots, clip_text, sent_len, pose, m_length, token, name = batch
+        word_embeddings, pos_one_hots, caption, sent_len, motion, m_length, token, name = batch
 
-        bs, seq = pose.shape[:2]
-        num_joints = 21 if pose.shape[-1] == 251 else 22
-        
-        text = clip.tokenize(clip_text, truncate=True).cuda()
-
-        feat_clip_text = self.clip_model.encode_text(text).float()
-        sample_times = 30 if mm else 1
+        et, em = self.eval_wrapper.get_co_embeddings(word_embeddings, pos_one_hots, sent_len, motion, m_length)
+        bs, seq = motion.shape[0], motion.shape[1]
+        num_joints = 21 if motion.shape[-1] == 251 else 22
         motion_multimodality_batch = []
+        sample_times = 30 if mm else 1
         for i in range(sample_times):
-            pred_pose_eval = torch.zeros((bs, seq, pose.shape[-1])).cuda()
-            pred_len = torch.ones(bs).long()
+            pred_pose_eval = torch.zeros((bs, seq, motion.shape[-1])).cuda()
             for k in range(bs):
-                # try:
-                m_token = int((int((m_length[k] - 2) / 2) - 1) / 2) + 1
-                index_motion, logits = self.denoiser.sample_motion_index(feat_clip_text[k:k+1], torch.tensor([m_token]))
-                # except:
-                #     index_motion = torch.ones(1,1).cuda().long()
+                pose = self.inv_transform(motion[k:k+1, :m_length[k], :].detach().cpu().numpy())
+                pose_xyz = recover_from_ric(torch.from_numpy(pose).float().cuda(), num_joints)
 
-                pred_pose = self.net.forward_decoder(index_motion)
-                cur_len = pred_pose.shape[1]
+                pred_pose, loss_commit, perplexity = self.net(motion[k:k+1, :m_length[k]])
+                pred_denorm = self.inv_transform(pred_pose.detach().cpu().numpy())
+                pred_xyz = recover_from_ric(torch.from_numpy(pred_denorm).float().cuda(), num_joints)
+                
+                pred_pose_eval[k:k+1,:m_length[k],:] = pred_pose
 
-                pred_len[k] = min(cur_len, seq)
-                pred_pose_eval[k:k+1, :cur_len] = pred_pose[:, :seq]
 
-            et_pred, em_pred = self.eval_wrapper.get_co_embeddings(word_embeddings, pos_one_hots, sent_len, pred_pose_eval, pred_len)
+            et_pred, em_pred = self.eval_wrapper.get_co_embeddings(word_embeddings, pos_one_hots, sent_len, pred_pose_eval, m_length)
             motion_multimodality_batch.append(em_pred.reshape(bs, 1, -1))
             if i == 0:
-                pose = pose.cuda().float()
-                et, em = self.eval_wrapper.get_co_embeddings(word_embeddings, pos_one_hots, sent_len, pose, m_length)
                 self.motion_annotation_list.append(em)
                 self.motion_pred_list.append(em_pred)
 
@@ -178,7 +157,3 @@ class vq_diffusion(pl.LightningModule):
     def test_epoch_end(self, outputs):
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
         return
-    
-    def forward(self, prompt, length):
-
-        return 

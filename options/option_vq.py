@@ -56,6 +56,16 @@ def get_args_parser():
     
     parser.add_argument('--vis-gt', action='store_true', help='whether visualize GT motions')
     parser.add_argument('--nb-vis', default=20, type=int, help='nb of visualizations')
+    parser.add_argument('--nodebug', action='store_true', help='set --nodebug while training')
+    parser.add_argument('--val-every-epoch', default=25, type=int, help='validation every n train epoch')
+    parser.add_argument('--epoch', default=600, type=int, help='training epochs')
     
+    args = parser.parse_args()
     
-    return parser.parse_args()
+    if args.dataname == 'kit' : 
+        args.dataset_opt_path = 'checkpoints/kit/Comp_v6_KLD005/opt.txt'  
+        args.nb_joints = 21
+    else :
+        args.dataset_opt_path = 'checkpoints/t2m/Comp_v6_KLD005/opt.txt'
+        args.nb_joints = 22
+    return args
