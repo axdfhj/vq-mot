@@ -17,7 +17,7 @@ from os.path import join as pjoin
 class vq_vae(pl.LightningModule):
     def __init__(
         self,
-        args) -> None:
+        args, train=True) -> None:
         
         super().__init__()
         self.args = args
@@ -25,17 +25,30 @@ class vq_vae(pl.LightningModule):
         wrapper_opt = get_opt(dataset_opt_path, args.nodebug)
         self.eval_wrapper = EvaluatorModelWrapper(wrapper_opt)
         meta_dir = 'checkpoints/kit/VQVAEV3_CB1024_CMT_H1024_NRES3/meta' if args.dataname == 'kit' else 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
-        self.mean = np.load(pjoin(meta_dir, 'mean.npy'))
-        self.std = np.load(pjoin(meta_dir, 'std.npy'))
-        self.net = vqvae.HumanVQVAE(args).cuda()   
+        if args.dataname == 't2m':
+            self.mean = np.load(pjoin('dataset/HumanML3D', 'Mean.npy'))
+            self.std = np.load(pjoin('dataset/HumanML3D', 'Std.npy'))
+        elif args.dataname == 't2m_right':
+            self.mean = np.load(pjoin('dataset/HumanML3D_right', 'Mean.npy'))
+            self.std = np.load(pjoin('dataset/HumanML3D_right', 'Std.npy'))
+        else:
+            self.mean = np.load(pjoin(meta_dir, 'mean.npy'))
+            self.std = np.load(pjoin(meta_dir, 'std.npy'))
+        self.net = vqvae.HumanVQVAE(args)
         self.save_path = os.path.join(args.out_dir, 'checkpoints')
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=args.weight_decay)
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=args.lr_scheduler, gamma=args.gamma)
-        self.clip_grad_norm = ClipGradNorm(start_iteration=0, end_iteration=5000, max_norm=0.5)
         self.Loss = losses.ReConsLoss(args.recons_loss, args.nb_joints)
+        if train:
+            self.save_hyperparameters()
+            self.evaluation_epoch_init()
+        self.train_step = 0
         self.automatic_optimization = False
-        self.save_hyperparameters()
-        self.evaluation_epoch_init()
+        self.bestfid = 0.15
+    
+    def load_checkpoint(self, path):
+        state_dict = torch.load(path, map_location="cpu")
+        self.net.load_state_dict(state_dict['net'], strict=False)
         
     def evaluation_epoch_init(self):
         self.motion_annotation_list = []
@@ -51,20 +64,21 @@ class vq_vae(pl.LightningModule):
         return {"optimizer":self.optimizer}
     
     def manual_backward(self, loss):
-        if self.global_step <= self.args.warm_up_iter:
-            current_lr = self.args.lr * (self.global_step + 1) / (self.args.warm_up_iter + 1)
+        if self.train_step <= self.args.warm_up_iter:
+            current_lr = self.args.lr * (self.train_step + 1) / (self.args.warm_up_iter + 1)
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = current_lr
         self.optimizer.zero_grad()
         loss.backward()
-        self.clip_grad_norm(self.net.parameters())
         self.optimizer.step()
-        if self.global_step <= self.args.warm_up_iter:
+        if self.train_step > self.args.warm_up_iter:
             self.scheduler.step()
+        self.train_step += 1
         
     def training_step(self, batch, batch_idx):
-        gt_motion = batch.cuda().float() # bs, nb_joints, joints_dim, seq_len
-        pred_motion, loss_commit, perplexity = self.net(gt_motion)
+        gt_motion = batch.cuda().float()
+        input_motion = gt_motion
+        pred_motion, loss_commit, perplexity = self.net(input_motion)
         loss_motion = self.Loss(pred_motion, gt_motion)
         loss_vel = self.Loss.forward_vel(pred_motion, gt_motion)
         
@@ -78,7 +92,6 @@ class vq_vae(pl.LightningModule):
     
     def evaluation_step(self, batch, mm=False):
         word_embeddings, pos_one_hots, caption, sent_len, motion, m_length, token, name = batch
-
         et, em = self.eval_wrapper.get_co_embeddings(word_embeddings, pos_one_hots, sent_len, motion, m_length)
         bs, seq = motion.shape[0], motion.shape[1]
         num_joints = 21 if motion.shape[-1] == 251 else 22
@@ -146,9 +159,20 @@ class vq_vae(pl.LightningModule):
 
     def validation_epoch_end(self, outputs):
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
-        if self.local_rank == 0 and fid < 0.5:
-            os.makedirs(self.save_path, exist_ok=True)
-            torch.save({'net': self.denoiser.state_dict()}, os.path.join(self.save_path, f'epoch-{self.current_epoch}-step-{self.global_step}.pth'))
+        if fid < self.bestfid:
+            self.bestfid = fid
+            if self.local_rank not in [1, 2, 3]:
+                os.makedirs(self.save_path, exist_ok=True)
+                torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'best_fid.pth'))
+        if fid < 0.15:
+            if self.local_rank not in [1, 2, 3]:
+                os.makedirs(self.save_path, exist_ok=True)
+                torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'last.pth'))
+        if fid < 0.15 and self.train_step % 10000 == 0:
+            if self.local_rank not in [1, 2, 3]:
+                os.makedirs(self.save_path, exist_ok=True)
+                torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'epoch-{self.current_epoch}-step-{self.train_step}.pth'))
+            
     
     def test_step(self, batch, batch_idx):
         self.evaluation_step(batch, mm=False)

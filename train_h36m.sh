@@ -1,16 +1,17 @@
 python3 train.py  \
---exp-name debug \
---batch-size 2 \
+--exp-name h36m_text \
+--batch-size 128 \
 --nb-code 512 \
 --resume-pth output/vqvae_h36m_total/net_last.pth \
 --vq-name VQVAE_h36m_total \
 --out-dir experiments \
 --lr-scheduler 150000 \
 --lr 1.5e-5 \
---dataname t2m \
 --weight-decay 4.5e-2 \
+--dataname t2m \
 --down-t 2 \
 --depth 3 \
 --quantizer ema_reset \
 --dilation-growth-rate 3 \
---vq-act relu
+--vq-act relu \
+--epoch 700 

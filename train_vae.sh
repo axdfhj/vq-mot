@@ -8,10 +8,9 @@ python train_vae.py \
 --depth 3 \
 --dilation-growth-rate 3 \
 --out-dir experiments \
---dataname t2m \
---vq-act relu \
+--dataname t2m_right \
 --quantizer ema_reset \
 --loss-vel 0.5 \
 --recons-loss l1_smooth \
---exp-name train_vae_with_random_mask \
---nodebug
+--exp-name h36m_right \
+--h36m

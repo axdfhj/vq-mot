@@ -1,0 +1,36 @@
+model:
+  arch: pretrain_opt2.7b
+  load_finetuned: False
+
+  pretrained: "https://storage.googleapis.com/sfr-vision-language-research/LAVIS/models/BLIP2/blip2_pretrained_opt2.7b.pth"
+  finetuned: ""
+
+  # vit encoder
+  img_size: 224
+  drop_path_rate: 0
+  use_grad_checkpoint: False
+  vit_precision: "fp32"
+  max_txt_len: 32
+  # Q-Former
+  num_query_token: 32
+
+  # OPT
+  opt_model: "facebook/opt-2.7b"
+  opt_model_path: "checkpoints/blip2/blip2_pretrained_opt2.7b.pth"
+
+  # generation configs
+  prompt: "a 3d model of"
+
+  freeze_vit: False
+  freeze_qformer: False
+  freeze_ln_vision: False
+  freeze_opt_proj: False
+  freeze_query: False
+# img_size: 224
+# drop_path_rate: 0
+# use_grad_checkpoint: false
+# vit_precision: fp32
+# freeze_vit: false
+# num_query_token: 32
+# opt_model: ../pretrained_models/opt-2.7b
+# path: 

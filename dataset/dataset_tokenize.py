@@ -18,7 +18,7 @@ class VQMotionDataset(data.Dataset):
         min_motion_len = 40 if dataset_name =='t2m' else 24
         
         if dataset_name == 't2m':
-            self.data_root = './dataset/HumanML3D'
+            self.data_root = '/nas/hml3d_datasets/HumanML3D'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
             self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 22
@@ -28,6 +28,16 @@ class VQMotionDataset(data.Dataset):
             dim_pose = 263
             self.meta_dir = 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
             #kinematic_chain = paramUtil.t2m_kinematic_chain
+        elif dataset_name == 't2m_right':
+            self.data_root = '/nas/hml3d_datasets/HumanML3D_right'
+            self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
+            self.text_dir = pjoin(self.data_root, 'texts')
+            self.joints_num = 22
+            radius = 4
+            fps = 20
+            self.max_motion_length = 196
+            dim_pose = 263
+            self.meta_dir = 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
         elif dataset_name == 'kit':
             self.data_root = './dataset/KIT-ML'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
@@ -98,20 +108,48 @@ class VQMotionDataset(data.Dataset):
 
         return motion, name
 
+class VQMotionDataset_h36m(data.Dataset):
+    def __init__(self):
+        motion_root = '/nas/hml3d_datasets/h36m/new_joint_vecs'
+        motion_files = os.listdir(motion_root)
+        self.motion_list = []
+        self.name_list = []
+        self.unit_length = 8
+        for motion_file in tqdm(motion_files):
+            path = pjoin(motion_root, motion_file)
+            motion = np.load(path)
+            name = motion_file[:-4]
+            self.motion_list.append(motion)
+            self.name_list.append(name)
+        self.meta_dir = 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
+        self.mean = np.load(pjoin(self.meta_dir, 'mean.npy'))
+        self.std = np.load(pjoin(self.meta_dir, 'std.npy'))
+
+    def __len__(self):
+        return len(self.motion_list)
+
+    def __getitem__(self, item):
+        name = self.name_list[item]
+        motion = self.motion_list[item]
+        m_length = (len(motion) // self.unit_length) * self.unit_length
+
+        idx = random.randint(0, len(motion) - m_length)
+        motion = motion[idx:idx+m_length]
+        motion = (motion - self.mean) / self.std
+        return motion, name
+
 def DATALoader(dataset_name,
                 batch_size = 1,
                 num_workers = 8, unit_length = 4) : 
     
-    train_loader = torch.utils.data.DataLoader(VQMotionDataset(dataset_name, unit_length=unit_length),
+    if dataset_name == 'h36m':
+        dataset = VQMotionDataset_h36m()
+    else:
+        dataset = VQMotionDataset(dataset_name, unit_length=unit_length)
+    train_loader = torch.utils.data.DataLoader(dataset,
                                               batch_size,
                                               shuffle=True,
                                               num_workers=num_workers,
                                               #collate_fn=collate_fn,
                                               drop_last = True)
-    
     return train_loader
-
-def cycle(iterable):
-    while True:
-        for x in iterable:
-            yield x

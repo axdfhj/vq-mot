@@ -4,8 +4,8 @@ from os.path import join as pjoin
 import numpy as np
 from pytorch_lightning import loggers as pl_loggers
 import pytorch_lightning as pl
-from vq_mld import vq_diffusion
-from humanml3d import Humanml3dDataModule
+from lightning.module.vq_mld import vq_diffusion
+from lightning.datamodule.humanml3d import Humanml3dDataModule
 import utils.utils_model as utils_model
 import warnings
 import argparse
@@ -24,7 +24,7 @@ def main():
     ##### ---- get config ---- #####
     config_path = pjoin(os.path.dirname(opt.checkpoint_dir), '..', 'config.yaml')
     args = OmegaConf.load(config_path)
-    args.out_dir = os.path.join(args.out_dir, 'test-' + os.path.basename(opt.checkpoint_dir)[:-4])
+    args.out_dir = os.path.join(args.out_dir, 'Test-' + os.path.basename(opt.checkpoint_dir)[:-4])
     args.vq_dir= os.path.join("./dataset/KIT-ML" if args.dataname == 'kit' else "./dataset/HumanML3D", f'{args.vq_name}')
     args.resume_trans = opt.checkpoint_dir
     os.makedirs(args.out_dir, exist_ok = True)
@@ -57,7 +57,7 @@ def main():
         devices=[1],
         # devices=[0],
         strategy="ddp",
-        move_metrics_to_cpu=True,
+        # move_metrics_to_cpu=True,
         default_root_dir=args.out_dir,
         deterministic=False,
         detect_anomaly=False,

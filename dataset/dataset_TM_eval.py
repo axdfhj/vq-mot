@@ -19,7 +19,6 @@ def collate_fn(batch):
 '''For use of training text-2-motion generative model'''
 class Text2MotionDataset(data.Dataset):
     def __init__(self, dataset_name, is_test, w_vectorizer, feat_bias = 5, max_text_len = 20, unit_length = 4, nodebug = False):
-        
         self.max_length = 20
         self.pointer = 0
         self.dataset_name = dataset_name
@@ -28,7 +27,18 @@ class Text2MotionDataset(data.Dataset):
         self.unit_length = unit_length
         self.w_vectorizer = w_vectorizer
         if dataset_name == 't2m':
-            self.data_root = './dataset/HumanML3D'
+            self.data_root = '/nas/hml3d_datasets/HumanML3D'
+            self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
+            self.text_dir = pjoin(self.data_root, 'texts')
+            self.joints_num = 22
+            radius = 4
+            fps = 20
+            self.max_motion_length = 196
+            dim_pose = 263
+            kinematic_chain = paramUtil.t2m_kinematic_chain
+            self.meta_dir = 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
+        elif dataset_name == 't2m_right':
+            self.data_root = '/nas/hml3d_datasets/HumanML3D_right'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
             self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 22
@@ -56,7 +66,7 @@ class Text2MotionDataset(data.Dataset):
         if is_test:
             split_file = pjoin(self.data_root, 'test.txt')
         else:
-            split_file = pjoin(self.data_root, 'val.txt')
+            split_file = pjoin(self.data_root, 'test.txt')
 
         min_motion_len = 40 if self.dataset_name =='t2m' else 24
         # min_motion_len = 64
@@ -65,9 +75,17 @@ class Text2MotionDataset(data.Dataset):
 
         data_dict = {}
         id_list = []
+        
+        
         with cs.open(split_file, 'r') as f:
             for line in f.readlines():
                 id_list.append(line.strip())
+        
+        if not is_test:
+            id_list = random.sample(id_list, 2000)
+        
+        # if not nodebug:
+        #     id_list = id_list[:300]
         
         new_name_list = []
         length_list = []

@@ -13,4 +13,4 @@ python train_vae.py \
 --quantizer ema_reset \
 --loss-vel 0.5 \
 --recons-loss l1_smooth \
---exp-name train_vae
+--exp-name retrain_vae

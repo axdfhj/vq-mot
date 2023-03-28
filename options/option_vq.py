@@ -9,6 +9,7 @@ def get_args_parser():
     parser.add_argument('--dataname', type=str, default='kit', help='dataset directory')
     parser.add_argument('--batch-size', default=128, type=int, help='batch size')
     parser.add_argument('--window-size', type=int, default=64, help='training motion length')
+    parser.add_argument('--h36m', action='store_true', help='train with h36m data if true')
 
     ## optimization
     parser.add_argument('--total-iter', default=200000, type=int, help='number of total iterations to run')
@@ -57,7 +58,6 @@ def get_args_parser():
     parser.add_argument('--vis-gt', action='store_true', help='whether visualize GT motions')
     parser.add_argument('--nb-vis', default=20, type=int, help='nb of visualizations')
     parser.add_argument('--nodebug', action='store_true', help='set --nodebug while training')
-    parser.add_argument('--val-every-epoch', default=25, type=int, help='validation every n train epoch')
     parser.add_argument('--epoch', default=600, type=int, help='training epochs')
     
     args = parser.parse_args()

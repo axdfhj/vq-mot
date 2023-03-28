@@ -1,7 +1,8 @@
 import pytorch_lightning as pl
 import torch
-import clip
+from VQ_utils.CLIP_encoder import CLIPTextEmbedding, CLIPImageEmbedding
 import models.vqvae as vqvae
+import math
 from options.get_eval_option import get_opt
 import utils.utils_model as utils_model
 from models.evaluator_wrapper import EvaluatorModelWrapper
@@ -21,13 +22,9 @@ class vq_diffusion(pl.LightningModule):
         super().__init__()
         dataset_opt_path = 'checkpoints/kit/Comp_v6_KLD005/opt.txt' if args.dataname == 'kit' else 'checkpoints/t2m/Comp_v6_KLD005/opt.txt'
 
-        self.clip_model, clip_preprocess = clip.load("ViT-B/32", device=torch.device('cuda'), jit=False)  # Must set jit=False for training
+        self.clip_model = CLIPTextEmbedding(normalize=True)
         wrapper_opt = get_opt(dataset_opt_path, args.nodebug)
         self.eval_wrapper = EvaluatorModelWrapper(wrapper_opt)
-        clip.model.convert_weights(self.clip_model)  # Actually this line is unnecessary since clip by default already on float16
-        self.clip_model.eval()
-        for p in self.clip_model.parameters():
-            p.requires_grad = False
         self.net = vqvae.HumanVQVAE(args)
         trans_config['nb_code'] = args.nb_code # nb_code + 1
         self.denoiser = DiffusionTransformer(**trans_config) #改成 diffusion denoiser
@@ -79,25 +76,21 @@ class vq_diffusion(pl.LightningModule):
         target = m_tokens    # (bs, 26)
         target = target.cuda()
         
-        text = clip.tokenize(clip_text, truncate=True).cuda()
-        feat_clip_text = self.clip_model.encode_text(text).float()
+        feat_clip_text = self.clip_model.encode_text(clip_text).float()
         input_index = target[:,:-1]
         # denoise
         log_model_prob, loss = self.denoiser._train_loss(x=input_index, cond_emb=feat_clip_text, is_train=True, length=m_tokens_len)
         self.log("train_loss", loss)
         self.manual_backward(loss)
-        
         return loss
     
     def evaluation_step(self, batch, mm=False):
         word_embeddings, pos_one_hots, clip_text, sent_len, pose, m_length, token, name = batch
-
         bs, seq = pose.shape[:2]
         num_joints = 21 if pose.shape[-1] == 251 else 22
         
-        text = clip.tokenize(clip_text, truncate=True).cuda()
 
-        feat_clip_text = self.clip_model.encode_text(text).float()
+        feat_clip_text = self.clip_model.encode_text(clip_text).float()
         sample_times = 30 if mm else 1
         motion_multimodality_batch = []
         for i in range(sample_times):
@@ -165,7 +158,7 @@ class vq_diffusion(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         self.evaluation_step(batch, mm=False)
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
         if self.local_rank == 0 and fid < 0.5:
             os.makedirs(self.save_path, exist_ok=True)
@@ -175,7 +168,7 @@ class vq_diffusion(pl.LightningModule):
         self.evaluation_step(batch, mm=False)
         return
     
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
         return
     

@@ -3,8 +3,8 @@ import pdb
 from pytorch_lightning import loggers as pl_loggers
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from vq_vae import vq_vae
-from humanml3d_vae import Humanml3dVaeDataModule
+from lightning.module.vq_vae import vq_vae
+from lightning.datamodule.humanml3d_vae import Humanml3dVaeDataModule
 import json
 import options.option_vq as option_trans
 import utils.utils_model as utils_model
@@ -18,6 +18,8 @@ def main():
     args = option_trans.get_args_parser()    
     pl.seed_everything(args.seed)
 
+    if not args.nodebug:
+        args.exp_name = 'db-' + args.exp_name
     args.out_dir = os.path.join(args.out_dir, f'{args.exp_name}')
     os.makedirs(args.out_dir, exist_ok = True)
     
@@ -30,7 +32,7 @@ def main():
     
     wandb_logger = pl_loggers.WandbLogger(
         # set the wandb project where this run will be logged
-        project="motion_vq_vae",
+        project="vqvae_t2m_retrain",
         name=args.exp_name,
         offline= not args.nodebug,
         # track hyperparameters and run metadata
@@ -48,20 +50,19 @@ def main():
     ##### ---- trainer ---- #####
     trainer = pl.Trainer(
         benchmark=False,
+        max_epochs=3250,
         max_steps=args.total_iter,
         accelerator="gpu",
-        devices=[0, 1, 2, 3] if args.nodebug else [0],
-        # devices=[0],
-        strategy="ddp",
+        devices=[0],
+        # strategy='ddp',
         move_metrics_to_cpu=True,
         default_root_dir=args.out_dir,
-        log_every_n_steps=args.eval_iter,
         deterministic=False,
         detect_anomaly=False,
         enable_progress_bar=True,
         logger=[wandb_logger],
-        # callbacks=checkpoint_callback,
-        check_val_every_n_epoch=args.eval_iter,
+        val_check_interval=args.eval_iter,
+        check_val_every_n_epoch=None,
     )
     
     trainer.fit(model, datamodule=datamodule)

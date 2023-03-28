@@ -1,9 +1,9 @@
 python3 train.py  \
---exp-name train_larger \
+--exp-name h36m_wrong \
 --batch-size 128 \
 --nb-code 512 \
---resume-pth output/VQVAE/net_last.pth \
---vq-name VQVAE \
+--resume-pth /HOME/lyh/T2M-GPT/output/h36m_wrong/net_best_fid.pth \
+--vq-name VQVAE_h36m_wrong \
 --out-dir experiments \
 --lr-scheduler 150000 \
 --lr 1.5e-5 \
@@ -14,5 +14,6 @@ python3 train.py  \
 --quantizer ema_reset \
 --dilation-growth-rate 3 \
 --vq-act relu \
---epoch 900 \
+--epoch 800 \
+--h36m \
 --nodebug
