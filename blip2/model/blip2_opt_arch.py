@@ -49,6 +49,9 @@ class Blip2OPT(Blip2Base):
         prompt = opt["prompt"]
         max_txt_len = opt["max_txt_len"]
         opt_pretrained = opt["opt_model_path"]
+        self.temperal_emb = opt.get("temperal_emb", False)
+        self.use_nucleus_sampling = opt.get("use_nucleus_sampling", False)
+        self.num_captions = opt.get("num_captions", 1)
         
         super().__init__()
 
@@ -57,6 +60,10 @@ class Blip2OPT(Blip2Base):
         self.visual_encoder, self.ln_vision = self.init_vision_encoder(
             img_size, drop_path_rate, use_grad_checkpoint, vit_precision
         )
+        if self.temperal_emb:
+            self.img_temperal_embedding = nn.ParameterList(
+                nn.Parameter(torch.zeros(1, 1, 1408)) for _ in range(8)
+            )
         if opt.get("freeze_vit", False):
             for name, param in self.visual_encoder.named_parameters():
                 param.requires_grad = False
@@ -104,9 +111,11 @@ class Blip2OPT(Blip2Base):
         
         finetuned_checkpoint = opt.get("finetuned_checkpoint", None)
         if finetuned_checkpoint == None:
+            print(f'loading model from {opt_pretrained}!')
             state_dict = torch.load(opt_pretrained, map_location="cpu")
             self.load_state_dict(state_dict['model'], strict=False)
         else:
+            print(f'loading model from {finetuned_checkpoint}!')
             state_dict = torch.load(finetuned_checkpoint, map_location="cpu")
             self.load_state_dict(state_dict['model'], strict=False)
         self.num_beams = opt.get("num_beams", 5)
@@ -117,6 +126,8 @@ class Blip2OPT(Blip2Base):
             for image in samples["image"]:
                 image = image.cuda()
                 embeds.append(self.ln_vision(self.visual_encoder(image)))
+            if self.temperal_emb:
+                embeds = [f + e for f, e in zip(embeds, self.img_temperal_embedding)]
             # 1. concat
             image_embeds = torch.cat(embeds, dim=1)
             # 2. mean pooling
@@ -184,7 +195,7 @@ class Blip2OPT(Blip2Base):
 
             return loss
         else:
-            return self.generate(samples, num_beams=self.num_beams)
+            return self.generate(samples, num_beams=self.num_beams, use_nucleus_sampling=self.use_nucleus_sampling, num_captions=self.num_captions)
 
     @torch.no_grad()
     def generate(
@@ -218,6 +229,8 @@ class Blip2OPT(Blip2Base):
         for image in samples["image"]:
             image = image.cuda()
             embeds.append(self.ln_vision(self.visual_encoder(image)))
+        if self.temperal_emb:
+            embeds = [f + e for f, e in zip(embeds, self.img_temperal_embedding)]
         # 1. concat
         image_embeds = torch.cat(embeds, dim=1)
         # 2. mean pooling

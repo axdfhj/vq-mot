@@ -20,7 +20,11 @@ def main():
 
     if not args.nodebug:
         args.exp_name = 'db-' + args.exp_name
-    args.out_dir = os.path.join(args.out_dir, f'{args.exp_name}')
+        os.makedirs(os.path.join(args.out_dir, 'debug'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'debug', f'{args.exp_name}')
+    else:
+        os.makedirs(os.path.join(args.out_dir, 'vq-vae'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'vq-vae', f'{args.exp_name}')
     os.makedirs(args.out_dir, exist_ok = True)
     
     with open(os.path.join(args.out_dir, 'config.yaml'), 'w') as file:

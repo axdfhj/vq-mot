@@ -17,7 +17,26 @@ import pdb
 # def collate_fn(batch):
 #     batch.sort(key=lambda x: x[3], reverse=True)
 #     return default_collate(batch)
-
+FLAG3D_TRAIN = [1, 2, 3, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 44, 45, 46, 48, 49, 50, 51, 52, 54, 55, 56, 57, 58, 59, 60]
+pre_list = ['maybe ', 'as if ', 'looks like ', '']
+mid_list = ['', 'the person ', 'the man ', 'a man ', 'the figure ', 'he ', 'a person ']
+pose_dict = {'Directions': ['gave directions to someone.', 'make directions.', 'directing.', 'directs for others.'],
+             'Discussion': ['is having a discussion.', 'is discussing with somebody.', 'led the discussion.'],
+             'Eating': ['eating sandwich.', 'take dinner.', 'eats.', 'is eating something.'],
+             'Greeting': ['is greeting.', 'greeted.', 'greeted with other.'],
+             'Phoning': ['is calling.', 'make a phone call.', 'phoning.', 'is on the phone talking.'],
+             'Posing': ['make a pose.', 'posing.', 'pose for a painting.'],
+             'Photo': ['make a photo.', 'pose for a photo.'],
+             'Purchases': ['are buying something.', 'purchases.'],
+             'Sitting': ['is sitting on a chair.'],
+             'SittingDown': ['was sitting on the bench.', 'sat down.'],
+             'Smoking': ['is smoking.', 'smokes a cigarette.'],
+             'TakingPhoto': ['is taking a photo.', 'takes photos for others.', 'take pictures.'],
+             'Waiting': [''],
+             'Walking': [''],
+             'WalkingDog': [''],
+             'WalkDog': [''],
+             'WalkTogether': ['']}
 
 '''For use of training text-2-motion generative model'''
 class Text2MotionDataset(data.Dataset):
@@ -32,7 +51,17 @@ class Text2MotionDataset(data.Dataset):
         self.mot_mask_idx = codebook_size
         self.mot_pad_idx = codebook_size + 1
         if dataset_name == 't2m':
-            self.data_root = './dataset/HumanML3D'
+            self.data_root = '/nas/hml3d_datasets/HumanML3D'
+            self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
+            self.text_dir = pjoin(self.data_root, 'texts')
+            self.joints_num = 22
+            radius = 4
+            fps = 20
+            self.max_motion_length = 26 if unit_length == 8 else 51
+            dim_pose = 263
+            kinematic_chain = paramUtil.t2m_kinematic_chain
+        elif dataset_name == 't2m_right':
+            self.data_root = '/nas/hml3d_datasets/HumanML3D_right'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
             self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 22
@@ -42,7 +71,7 @@ class Text2MotionDataset(data.Dataset):
             dim_pose = 263
             kinematic_chain = paramUtil.t2m_kinematic_chain
         elif dataset_name == 'kit':
-            self.data_root = './dataset/KIT-ML'
+            self.data_root = '/nas/hml3d_datasets/HumanML3D_right'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
             self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 21
@@ -342,7 +371,7 @@ class Text2MotionDataset_withH36m(data.Dataset):
         if dataset_name == 't2m':
             self.data_root = '/nas/hml3d_datasets/HumanML3D'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
-            self.text_dir = '/nas/hml3d_datasets/HumanML3D/texts'
+            self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 22
             radius = 4
             fps = 20
@@ -352,7 +381,7 @@ class Text2MotionDataset_withH36m(data.Dataset):
         elif dataset_name == 't2m_right':
             self.data_root = '/nas/hml3d_datasets/HumanML3D_right'
             self.motion_dir = pjoin(self.data_root, 'new_joint_vecs')
-            self.text_dir = '/HOME/lyh/vq-mot/dataset/HumanML3D/texts'
+            self.text_dir = pjoin(self.data_root, 'texts')
             self.joints_num = 22
             radius = 4
             fps = 20
@@ -369,7 +398,6 @@ class Text2MotionDataset_withH36m(data.Dataset):
             dim_pose = 251
             self.max_motion_length = 26 if unit_length == 8 else 51
             kinematic_chain = paramUtil.kit_kinematic_chain
-
         split_file = pjoin(self.data_root, 'train.txt')
 
 
@@ -414,42 +442,139 @@ class Text2MotionDataset_withH36m(data.Dataset):
                                 if len(m_token_list_new) == 0:
                                     continue
                                 new_name = '%s_%f_%f'%(name, f_tag, to_tag)
-
+                                while new_name in data_dict.keys():
+                                    new_name = '_' + new_name
                                 data_dict[new_name] = {'m_token_list': m_token_list_new,
-                                                       'text':[text_dict]}
+                                                    'text':[text_dict],
+                                                    'loss_weight': 1,
+                                                    'source': 'hml_nogtext'}
                                 new_name_list.append(new_name)
                         except:
                             pass
 
                 if flag:
                     data_dict[name] = {'m_token_list': m_token_list,
-                                       'text':text_data}
+                                    'text':text_data,
+                                    'loss_weight': 1,
+                                    'source': 'hml_nogtext'}
                     new_name_list.append(name)
             except:
                 pass
-        h36m_name_list = [path[:-4] for path in os.listdir('/nas/hml3d_datasets/h36m/texts')]
-        for h36m_name in tqdm(h36m_name_list):
-            with open(f'/nas/hml3d_datasets/h36m/texts/{h36m_name}.txt') as file:
-                caption = file.readline()[:-1]
-            text_dict = {'caption': caption}
-            m_token_list = np.load(f'/nas/hml3d_datasets/h36m/{tokenizer_name}/{h36m_name}.npy')
-            data_dict[h36m_name] = {'m_token_list': m_token_list, 'text':[text_dict]}
-            new_name_list.append(h36m_name)
+        print(f'get {len(data_dict)} motions from {self.data_root}!')
+        
+        #get motion from flag3d
+        text_root = '/nas/flag3d/clean_data/texts'
+        motion_root = '/nas/flag3d/clean_data'
+        
+        m_file_list = [glob(pjoin(motion_root, tokenizer_name, f'M_M*P{p+1:03d}A{a+1:03d}R*.npy')) for a in FLAG3D_TRAIN for p in range(10)]
+        file_list = [glob(pjoin(motion_root, tokenizer_name, f'M*P{p+1:03d}A{a+1:03d}R*.npy')) for a in FLAG3D_TRAIN for p in range(10)]
+        file_list = [[x for x in ls if not os.path.basename(x).startswith('M_')] for ls in file_list]
+        file_list += m_file_list
+        num = 0
+        for motion_list in tqdm(file_list):
+            if len(motion_list) == 0:
+                continue
+            mname = motion_list[0][-16:-8]
+            if os.path.basename(motion_list[0]).startswith('M_'):
+                mname = 'M_' + mname
+            m_token_list = []
+            text_data = []
+            for path in motion_list:
+                code = np.load(path)
+                if True in np.isnan(code):
+                    continue
+                m_token_list.append(code)
+                name = path[-20:-4]
+                try:
+                    with cs.open(pjoin(text_root, name + '.txt')) as f:
+                        lines = f.readlines()
+                        for line in lines[0:4]:
+                            text_dict = {}
+                            caption = line.strip()
+                            text_dict['caption'] = caption
+                            text_data.append(text_dict)
+                except:
+                    pass
+            data_dict[mname] = {'m_token_list': m_token_list,
+                                       'text':text_data,
+                                       'loss_weight': 1,
+                                       'source': 'flag'}
+            new_name_list.append(mname)
+            if len(data_dict) != len(new_name_list):
+                pdb.set_trace()
+            num += 1
+        print(f'get {num} motions from {motion_root}!')
+        print(f'dataloader for fintune!')
+        # get motion from h36m
+        text_root = '/nas/hml3d_datasets/h36m/texts'
+        motion_root = pjoin('/nas/hml3d_datasets/h36m', tokenizer_name)
+        
+        num = 0
+        for p in tqdm(os.listdir(motion_root)):
+            motion_path = pjoin(motion_root, p)
+            m_token_list = np.load(motion_path)
+            if True in np.isnan(m_token_list):
+                print(p)
+                continue
+            mname = p[:-4]
+            text_data = []
+            try:
+                textname = mname if not mname.startswith('M') else mname[1:]
+                with cs.open(pjoin(text_root, textname + '_mesh_frames.txt')) as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        text_dict = {}
+                        caption = line.strip()
+                        text_dict['caption'] = caption
+                        text_data.append(text_dict)
+            except:
+                print(pjoin(text_root, mname + '_mesh_frames.txt'))
+                continue
+            action = textname.split('_')[1]
+            data_dict[mname] = {'m_token_list': m_token_list,
+                                       'text':text_data,
+                                       'action': action,
+                                       'loss_weight': 1,
+                                       'source': 'h36m'}
+            new_name_list.append(mname)
+            num += 1
+            if len(data_dict) != len(new_name_list):
+                pdb.set_trace()
+        print(f'get {num} motions from {motion_root}!')
+        assert len(data_dict) == len(new_name_list)
         self.data_dict = data_dict
         self.name_list = new_name_list
-        
 
     def __len__(self):
         return len(self.data_dict)
 
     def __getitem__(self, item):
         data = self.data_dict[self.name_list[item]]
+        loss_weight = data['loss_weight']
         m_token_list, text_list = data['m_token_list'], data['text']
+        if data['source'] == 'flag':
+            m_token_list = random.choice(m_token_list)
         m_tokens = random.choice(m_token_list)
 
         text_data = random.choice(text_list)
         caption= text_data['caption']
+        if data['source'] == 'h36m':
+            action = data['action']
+            action_sentence = random.choice(pre_list) + random.choice(mid_list) + random.choice(pose_dict[action])
+            coin = np.random.choice([1, 2, 3, 4])
+            if coin == 1:
+                caption = caption + ' ' + action_sentence
+            elif coin == 2:
+                caption = action_sentence + caption
+            elif coin == 3:
+                caption = action_sentence
+            else:
+                caption = caption
 
+        if len(m_tokens) > self.max_motion_length:
+            idx = random.randint(0, len(m_tokens) - self.max_motion_length)
+            randlen = random.randint(self.max_motion_length-11, self.max_motion_length-1)
+            m_tokens = m_tokens[idx: idx+randlen]
         
         coin = np.random.choice([False, False, True])
         # print(len(m_tokens))
@@ -466,8 +591,11 @@ class Text2MotionDataset_withH36m(data.Dataset):
             m_tokens = np.concatenate([m_tokens, np.ones((self.max_motion_length-m_tokens_len), dtype=int) * self.mot_mask_idx], axis=0)
         else:
             m_tokens = np.concatenate([m_tokens, np.ones((1), dtype=int) * self.mot_end_idx], axis=0)
-
-        return caption, m_tokens.reshape(-1), m_tokens_len
+        # guidance_free
+        guidance_free_prob = 0.05 if data['source'] in ['hml_nogtext', 'hml'] else 0.95
+        if random.random() < guidance_free_prob:
+            caption = ''
+        return caption, m_tokens.reshape(-1), m_tokens_len, loss_weight
 
 def DATALoader(dataset_name,
                 batch_size, codebook_size, tokenizer_name, unit_length=4,
@@ -485,6 +613,7 @@ def DATALoader(dataset_name,
 def withH36mDATALoader(dataset_name,
                 batch_size, codebook_size, tokenizer_name, unit_length=4,
                 num_workers = 8, nodebug = False):
+    num_workers = num_workers if nodebug else 0
     train_loader = torch.utils.data.DataLoader(Text2MotionDataset_withH36m(dataset_name, codebook_size = codebook_size, tokenizer_name = tokenizer_name, unit_length=unit_length, nodebug=nodebug),
                                               batch_size,
                                               shuffle=True,

@@ -5,7 +5,7 @@ adaptive_auxiliary_loss: True
 mask_weight: [1, 1]    # the loss weight on mask region and non-mask region
 transformer_config:
   attn_type: 'selfcross'
-  n_layer: 15
+  n_layer: 17
   condition_seq_len: 77    ###### 77 for clip and 256 for dalle
   content_seq_len: 50  # 32 x 32
   content_spatial_size: [1, 50]

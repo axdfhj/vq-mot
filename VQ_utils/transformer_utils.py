@@ -500,6 +500,8 @@ class Text2ImageTransformer(nn.Module):
         B, L = input.shape
         cont_emb = self.content_emb(input)
         cum = torch.ones((B, L, 1)).cumsum(dim=1).cuda()
+        if isinstance(length, list):
+            length = torch.tensor(length)
         length = length.contiguous().view((B,1,1)).cuda()
         mask = (cum <= length)
         emb = cont_emb * mask

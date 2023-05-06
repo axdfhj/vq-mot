@@ -23,7 +23,11 @@ def main():
     args.exp_name = 'ft-' + args.exp_name
     if not args.nodebug:
         args.exp_name = 'db-' + args.exp_name
-    args.out_dir = os.path.join(args.out_dir, f'{args.exp_name}')
+        os.makedirs(os.path.join(args.out_dir, 'debug'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'debug', f'{args.exp_name}')
+    else:
+        os.makedirs(os.path.join(args.out_dir, 'finetune'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'finetune', f'{args.exp_name}')
     os.makedirs(args.out_dir, exist_ok = True)
     
     with open(os.path.join(args.out_dir, 'config.yaml'), 'w') as file:
@@ -59,7 +63,6 @@ def main():
         devices=[0, 1, 2, 3] if args.nodebug else [0],
         # devices=[0],
         strategy="ddp",
-        move_metrics_to_cpu=True,
         default_root_dir=args.out_dir,
         log_every_n_steps=args.val_every_epoch,
         deterministic=False,
@@ -68,6 +71,7 @@ def main():
         logger=[wandb_logger],
         # callbacks=checkpoint_callback,
         check_val_every_n_epoch=args.val_every_epoch,
+        precision=16,
         # num_sanity_val_steps=2 if args.nodebug else 0,
     )
     

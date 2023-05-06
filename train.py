@@ -25,8 +25,12 @@ def main():
     pl.seed_everything(args.seed)
     if not args.nodebug:
         args.exp_name = 'db-' + args.exp_name
+        os.makedirs(os.path.join(args.out_dir, 'debug'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'debug', f'{args.exp_name}')
+    else:
+        os.makedirs(os.path.join(args.out_dir, 'diffusion'), exist_ok=True)
+        args.out_dir = os.path.join(args.out_dir, 'diffusion', f'{args.exp_name}')
 
-    args.out_dir = os.path.join(args.out_dir, f'{args.exp_name}')
     args.vq_dir= os.path.join("./dataset/KIT-ML" if args.dataname == 'kit' else "./dataset/HumanML3D", f'{args.vq_name}')
     os.makedirs(args.out_dir, exist_ok = True)
     os.makedirs(args.vq_dir, exist_ok = True)
@@ -51,7 +55,7 @@ def main():
     )
     
     ##### ---- model ---- #####
-    model = vq_diffusion(args, trans_config, scheduler_config)
+    model = vq_diffusion(args, trans_config, scheduler_config, logger=logger)
     
     ##### ---- data ---- #####
     datamodule = Humanml3dDataModule(args)
@@ -72,8 +76,9 @@ def main():
         enable_progress_bar=True,
         logger=[wandb_logger],
         # callbacks=checkpoint_callback,
+        # check_val_every_n_epoch=args.val_every_epoch,
         check_val_every_n_epoch=args.val_every_epoch,
-        # num_sanity_val_steps=2 if args.nodebug else 0,
+        num_sanity_val_steps=2,
     )
     
     trainer.fit(model, datamodule=datamodule)

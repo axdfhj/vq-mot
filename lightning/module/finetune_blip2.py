@@ -55,6 +55,8 @@ class finetune_blip2(pl.LightningModule):
         name_list = batch['name_list']
         gt_text = batch['text_input']
         text_list = self.model(batch, train=False)
+        loss = self.model(batch, train=True)
+        self.log('val_loss', float(loss))
         text_file = pjoin(self.eval_path, f'epoch:{self.current_epoch}.txt')
         file = open(text_file, 'a')
         for i in range(len(name_list)):
@@ -66,8 +68,8 @@ class finetune_blip2(pl.LightningModule):
             file.write(msg)
         file.close()
     
-    def validation_epoch_end(self, outputs):
-        if self.local_rank == 0 and self.current_epoch > 0:
+    def on_validation_epoch_end(self):
+        if self.local_rank == 0 and self.current_epoch > 15:
             os.makedirs(self.save_path, exist_ok=True)
             torch.save({'model': self.model.state_dict()}, pjoin(self.save_path, f'epoch-{self.current_epoch}-step-{self.global_step}.pth'))
     
@@ -76,6 +78,7 @@ class finetune_blip2(pl.LightningModule):
         gt_text = batch['text_input']
         text_list = self.model(batch, train=False)
         text_file = pjoin(self.eval_path, f't-epoch:{self.current_epoch}-nbeam:{self.num_beams}.txt')
+        print(f'text file will be saved in {text_file}!')
         file = open(text_file, 'a')
         for i in range(len(name_list)):
             if name_list[i].startswith('M'):
@@ -87,6 +90,9 @@ class finetune_blip2(pl.LightningModule):
         file.close()
         return
     
-    def forward(self, samples, nbeams = 1):
-        output_text = self.model.generate(samples, num_beams=nbeams)
+    def forward(self, samples, nbeams = 1, use_nucleus_sampling=False, top_p=0.9):
+        if not use_nucleus_sampling:
+            output_text = self.model.generate(samples, num_beams=nbeams)
+        else:
+            output_text = self.model.generate(samples, use_nucleus_sampling=True, top_p=top_p)
         return output_text

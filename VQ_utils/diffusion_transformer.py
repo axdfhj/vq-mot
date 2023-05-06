@@ -381,7 +381,7 @@ class DiffusionTransformer(nn.Module):
         pad[:, -1:, :] = 0
         return pad 
 
-    def _train_loss(self, x, cond_emb, is_train=True, length=None):                       # get the KL loss
+    def _train_loss(self, x, cond_emb, is_train=True, length=None, loss_weight=None):                       # get the KL loss
         b, l = x.shape
         assert self.loss_type == 'vb_stochastic'
         maskpad = self.generate_mask(length, b, l)
@@ -406,6 +406,8 @@ class DiffusionTransformer(nn.Module):
                                       )
 
         nb_tokens = torch.tensor(length).sum()
+        if loss_weight is not None:
+            vb_loss *= loss_weight
         vb_loss = vb_loss.sum()
         vb_loss /= nb_tokens
         # if decoder_nll > 0:
@@ -530,20 +532,22 @@ class DiffusionTransformer(nn.Module):
         cond_emb,
         length,
     ):
+        bs = length.shape[0]
         cond_emb = cond_emb.cuda()
-        zero_logits = torch.zeros((1, self.num_classes-2, self.content_seq_len))
-        one_logits = torch.ones((1, 1, self.content_seq_len))
+        # changed
+        zero_logits = torch.zeros((bs, self.num_classes-2, self.content_seq_len))
+        one_logits = torch.ones((bs, 1, self.content_seq_len))
 
         mask_logits = torch.cat((zero_logits, one_logits), dim=1)
         log_z = torch.log(mask_logits).cuda()
         start_step = self.num_timesteps
         with torch.no_grad():
             for diffusion_index in range(start_step-1, -1, -1):
-                t = torch.full((1,), diffusion_index, dtype=torch.long).cuda()
+                t = torch.full((bs,), diffusion_index, dtype=torch.long).cuda()
                 log_z = self.p_sample(log_z, cond_emb, t, length)
                 # if diffusion_index != 0:
                 #     log_z = self.padding(log_z, length)
-        content_token = log_onehot_to_index(log_z)[:, :length]
+        content_token = log_onehot_to_index(log_z)
         logits = torch.exp(log_z)
         return content_token, logits
 

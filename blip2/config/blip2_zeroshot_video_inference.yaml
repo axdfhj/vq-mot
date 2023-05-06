@@ -18,15 +18,19 @@ model:
   opt_model: "facebook/opt-2.7b"
   opt_model_path: "checkpoints/blip2/blip2_pretrained_opt2.7b.pth"
 
-  # generation configs
-  prompt: "a 3d model of"
+  # checkpoint
+  # disable finetuned_checkpoint to use pretrained model
+  # finetuned_checkpoint: None
 
-  freeze_vit: False
-  freeze_qformer: False
-  freeze_ln_vision: False
-  freeze_opt_proj: False
-  freeze_query: False
-  temperal_emb: True
+  # generation configs
+  prompt: "in the scene a person is"
+
+  freeze_vit: True
+  freeze_qformer: True
+  freeze_ln_vision: True
+  freeze_opt_proj: True
+  # temperal_emb: True
+  num_beams: 1
 # img_size: 224
 # drop_path_rate: 0
 # use_grad_checkpoint: false

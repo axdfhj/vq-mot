@@ -38,8 +38,8 @@ def main():
         # set the wandb project where this run will be logged
         project="motion_vq_diffusion_test",
         name='test-' + args.exp_name,
-        # offline=opt.offline,
-        offline=True,
+        offline=opt.offline,
+        # offline=True,
         # track hyperparameters and run metadata
         save_dir=args.out_dir,
         log_model=not opt.offline,

@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python generate_text.py --src-path /nas/rich_toolkit/data/frames --use-nucleus-sampling --top-p 0.9

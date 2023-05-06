@@ -12,5 +12,4 @@ python train_vae.py \
 --loss-vel 0.5 \
 --recons-loss l1_smooth \
 --h36m \
---nodebug \
 --exp-name vanilla_64frames_allmot_bs512_extralossweight_10_50

@@ -66,7 +66,7 @@ class Text2MotionDataset(data.Dataset):
         if is_test:
             split_file = pjoin(self.data_root, 'test.txt')
         else:
-            split_file = pjoin(self.data_root, 'test.txt')
+            split_file = pjoin(self.data_root, 'val.txt')
 
         min_motion_len = 40 if self.dataset_name =='t2m' else 24
         # min_motion_len = 64
@@ -81,11 +81,7 @@ class Text2MotionDataset(data.Dataset):
             for line in f.readlines():
                 id_list.append(line.strip())
         
-        if not is_test:
-            id_list = random.sample(id_list, 2000)
-        
-        # if not nodebug:
-        #     id_list = id_list[:300]
+        # id_list = id_list[:400]
         
         new_name_list = []
         length_list = []

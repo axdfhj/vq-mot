@@ -1,11 +1,14 @@
-python3 train.py  \
---exp-name h36m_wrong \
---batch-size 128 \
+python train.py \
+--exp-name cleandata_h36m_flag3d_textaug_weight10_gtext00_guidance005_retrain \
+--batch-size 256 \
 --nb-code 512 \
---resume-pth /HOME/lyh/T2M-GPT/output/h36m_wrong/net_best_fid.pth \
---vq-name VQVAE_h36m_wrong \
+--width 512 \
+--code-dim 512 \
+--output-emb-width 512 \
+--resume-pth /HOME/lyh/motion/vq-mot/experiments/vanilla_64frames_cleandata_motlist_bs512/checkpoints/epoch-1799.pth \
+--vq-name cleandata_motlist_1799 \
 --out-dir experiments \
---lr-scheduler 150000 \
+--lr-scheduler 20800 \
 --lr 1.5e-5 \
 --weight-decay 4.5e-2 \
 --dataname t2m \
@@ -14,6 +17,5 @@ python3 train.py  \
 --quantizer ema_reset \
 --dilation-growth-rate 3 \
 --vq-act relu \
---epoch 800 \
---h36m \
---nodebug
+--epoch 1800 \
+--h36m
