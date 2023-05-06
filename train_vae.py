@@ -50,19 +50,19 @@ def main():
     ##### ---- trainer ---- #####
     trainer = pl.Trainer(
         benchmark=False,
-        max_epochs=3250,
-        max_steps=args.total_iter,
+        max_epochs=2500,
+        # max_steps=args.total_iter,
         accelerator="gpu",
-        devices=[0],
+        devices=[0, 1, 2, 3] if args.nodebug else [0],
         # strategy='ddp',
-        move_metrics_to_cpu=True,
+        # move_metrics_to_cpu=True,
         default_root_dir=args.out_dir,
         deterministic=False,
         detect_anomaly=False,
         enable_progress_bar=True,
         logger=[wandb_logger],
-        val_check_interval=args.eval_iter,
-        check_val_every_n_epoch=None,
+        # val_check_interval=args.eval_iter,
+        check_val_every_n_epoch=25,
     )
     
     trainer.fit(model, datamodule=datamodule)

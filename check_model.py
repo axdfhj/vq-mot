@@ -54,10 +54,10 @@ def img_preprocess(path, transform):
 
 def get_test_paths(test_num):
     path_list = []
-    with open('/HOME/lyh/vq-mot/dataset/KIT-ML/test.txt', 'r') as f:
+    with open('./dataset/KIT-ML/test.txt', 'r') as f:
         for i in range(test_num):
             label = f.readline()[:-1]
-            path_list.append(f'/HOME/lyh/vq-mot/dataset/HumanML3D/render_frames/{label}_mesh_frames')
+            path_list.append(f'./dataset/HumanML3D/render_frames/{label}_mesh_frames')
     return path_list
     
 def main():

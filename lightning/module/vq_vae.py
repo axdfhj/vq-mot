@@ -25,15 +25,8 @@ class vq_vae(pl.LightningModule):
         wrapper_opt = get_opt(dataset_opt_path, args.nodebug)
         self.eval_wrapper = EvaluatorModelWrapper(wrapper_opt)
         meta_dir = 'checkpoints/kit/VQVAEV3_CB1024_CMT_H1024_NRES3/meta' if args.dataname == 'kit' else 'checkpoints/t2m/VQVAEV3_CB1024_CMT_H1024_NRES3/meta'
-        if args.dataname == 't2m':
-            self.mean = np.load(pjoin('dataset/HumanML3D', 'Mean.npy'))
-            self.std = np.load(pjoin('dataset/HumanML3D', 'Std.npy'))
-        elif args.dataname == 't2m_right':
-            self.mean = np.load(pjoin('dataset/HumanML3D_right', 'Mean.npy'))
-            self.std = np.load(pjoin('dataset/HumanML3D_right', 'Std.npy'))
-        else:
-            self.mean = np.load(pjoin(meta_dir, 'mean.npy'))
-            self.std = np.load(pjoin(meta_dir, 'std.npy'))
+        self.mean = np.load(pjoin(meta_dir, 'mean.npy'))
+        self.std = np.load(pjoin(meta_dir, 'std.npy'))
         self.net = vqvae.HumanVQVAE(args)
         self.save_path = os.path.join(args.out_dir, 'checkpoints')
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=args.weight_decay)
@@ -74,6 +67,11 @@ class vq_vae(pl.LightningModule):
         if self.train_step > self.args.warm_up_iter:
             self.scheduler.step()
         self.train_step += 1
+    
+    def inv_transorm_torch(self, data):
+        mean = torch.tensor(self.mean).cuda()
+        std = torch.tensor(self.std).cuda()
+        return data * std + mean
         
     def training_step(self, batch, batch_idx):
         gt_motion = batch.cuda().float()
@@ -82,8 +80,18 @@ class vq_vae(pl.LightningModule):
         loss_motion = self.Loss(pred_motion, gt_motion)
         loss_vel = self.Loss.forward_vel(pred_motion, gt_motion)
         
-        loss = loss_motion + self.args.commit * loss_commit + self.args.loss_vel * loss_vel
-        self.log("train_loss", loss)
+        gt_pose = self.inv_transorm_torch(gt_motion)
+        pose_xyz = recover_from_ric(gt_pose.float(), 22)
+        pred_denorm = self.inv_transorm_torch(pred_motion)
+        pred_xyz = recover_from_ric(pred_denorm.float(), 22)
+        loss_joints = self.Loss.forward_joints(pred_xyz, pose_xyz)
+        loss_skeleton = self.Loss.forward_skeleton(pred_xyz, pose_xyz)
+        loss = loss_motion + self.args.commit * loss_commit + self.args.loss_vel * loss_vel + loss_joints * 10 + loss_skeleton * 50
+        
+        self.log("train_loss", loss, prog_bar=True)
+        self.log("original_loss", loss_motion + self.args.commit * loss_commit + self.args.loss_vel * loss_vel)
+        self.log("joints_loss", loss_joints * 10)
+        self.log("skeleton_loss", loss_skeleton * 50)
         self.manual_backward(loss)
         return loss
     
@@ -155,20 +163,23 @@ class vq_vae(pl.LightningModule):
         return fid, diversity, R_precision, matching_score_pred, multimodality
     
     def validation_step(self, batch, batch_idx):
+        if self.current_epoch > 5 and self.current_epoch < 1000:
+            return
         self.evaluation_step(batch, mm=False)
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
+        if self.current_epoch > 5 and self.current_epoch < 1000:
+            return
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
         if fid < self.bestfid:
             self.bestfid = fid
             if self.local_rank not in [1, 2, 3]:
                 os.makedirs(self.save_path, exist_ok=True)
                 torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'best_fid.pth'))
-        if fid < 0.15:
-            if self.local_rank not in [1, 2, 3]:
-                os.makedirs(self.save_path, exist_ok=True)
-                torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'last.pth'))
-        if fid < 0.15 and self.train_step % 10000 == 0:
+        if self.local_rank not in [1, 2, 3]:
+            os.makedirs(self.save_path, exist_ok=True)
+            torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'last.pth'))
+        if self.current_epoch >= 1000:
             if self.local_rank not in [1, 2, 3]:
                 os.makedirs(self.save_path, exist_ok=True)
                 torch.save({'net': self.net.state_dict()}, os.path.join(self.save_path, f'epoch-{self.current_epoch}-step-{self.train_step}.pth'))
@@ -178,6 +189,6 @@ class vq_vae(pl.LightningModule):
         self.evaluation_step(batch, mm=False)
         return
     
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
         fid, diversity, R_precision, matching_score_pred, multimodality = self.evaluation_epoch_end(mm=False)
         return
