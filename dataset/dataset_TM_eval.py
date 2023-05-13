@@ -158,7 +158,8 @@ class Text2MotionDataset(data.Dataset):
         return (data - self.mean) / self.std
 
     def __len__(self):
-        return len(self.data_dict) - self.pointer
+        # for 4 process get same number of batches
+        return (len(self.data_dict) - self.pointer) // 4 * 4
 
     def __getitem__(self, item):
         idx = self.pointer + item

@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--checkpoint_dir', type=str, default='', help='dir of checkpoint')
     parser.add_argument('--replication_times', type=int, default=20, help='times of test')
     parser.add_argument('--offline', action='store_true', help='not log wandb online')
+    parser.add_argument('--mm', action='store_true', help='set mm to test multimodality metric, which is super slow!')
     opt = parser.parse_args()
     
     ##### ---- get config ---- #####
@@ -48,7 +49,7 @@ def main():
     
     ##### ---- model ---- #####
     model = vq_diffusion(args, trans_config, scheduler_config, logger=logger)
-    
+    model.set_mm(opt.mm)
     ##### ---- data ---- #####
     datamodule = Humanml3dDataModule(args)
     
@@ -56,7 +57,7 @@ def main():
     trainer = pl.Trainer(
         benchmark=False,
         accelerator="gpu",
-        devices=[1],
+        devices=[0, 1, 2, 3],
         # devices=[0],
         strategy="ddp",
         # move_metrics_to_cpu=True,
@@ -66,6 +67,11 @@ def main():
         enable_progress_bar=True,
         logger=[wandb_logger],
     )
+    if opt.mm:
+        prompt = 'with multimodality'
+    else:
+        prompt = 'without multimodality'
+    logger.info(f'test {prompt} for replication {opt.replication_times} times')
     fid_list, diversity_list, r1_list, r2_list, r3_list, matching_score_pred_list, multimodality_list  = [], [], [], [], [], [], []
     for rep in range(opt.replication_times):
         epoch_result = trainer.test(model=model, datamodule=datamodule)[0]
@@ -75,7 +81,8 @@ def main():
         r2_list.append(epoch_result['r2'])
         r3_list.append(epoch_result['r3'])
         matching_score_pred_list.append(epoch_result['matching_score'])
-        # multimodality_list.append(epoch_result['multimodality'])
+        if opt.mm:
+            multimodality_list.append(epoch_result['multimodality'])
         print(f'rep {rep} result:')
         print('fid: ', fid_list[-1])
         print('diversity: ', diversity_list[-1])
@@ -93,7 +100,8 @@ def main():
     print('r2: ', sum(r2_list)/opt.replication_times)
     print('r3: ', sum(r3_list)/opt.replication_times)
     print('matching_score: ', sum(matching_score_pred_list)/opt.replication_times)
-    # print('multimodality: ', sum(multimodality_list)/opt.replication_times)
+    if opt.mm:
+        print('multimodality: ', sum(multimodality_list)/opt.replication_times)
     
     fid = np.array(fid_list)
     div = np.array(diversity_list)
@@ -101,8 +109,11 @@ def main():
     top2 = np.array(r2_list)
     top3 = np.array(r3_list)
     matching = np.array(matching_score_pred_list)
-    # multi = np.array(multimodality_list)
-    msg_final = f"FID. {np.mean(fid):.3f}, conf. {np.std(fid)*1.96/np.sqrt(opt.replication_times):.3f}, Diversity. {np.mean(div):.3f}, conf. {np.std(div)*1.96/np.sqrt(opt.replication_times):.3f}, TOP1. {np.mean(top1):.3f}, conf. {np.std(top1)*1.96/np.sqrt(opt.replication_times):.3f}, TOP2. {np.mean(top2):.3f}, conf. {np.std(top2)*1.96/np.sqrt(opt.replication_times):.3f}, TOP3. {np.mean(top3):.3f}, conf. {np.std(top3)*1.96/np.sqrt(opt.replication_times):.3f}, Matching. {np.mean(matching):.3f}, conf. {np.std(matching)*1.96/np.sqrt(opt.replication_times):.3f}"
+    if opt.mm:
+        multi = np.array(multimodality_list)
+    msg_final = f"total result for rep:{opt.replication_times}: FID. {np.mean(fid):.3f}, conf. {np.std(fid)*1.96/np.sqrt(opt.replication_times):.3f}, Diversity. {np.mean(div):.3f}, conf. {np.std(div)*1.96/np.sqrt(opt.replication_times):.3f}, TOP1. {np.mean(top1):.3f}, conf. {np.std(top1)*1.96/np.sqrt(opt.replication_times):.3f}, TOP2. {np.mean(top2):.3f}, conf. {np.std(top2)*1.96/np.sqrt(opt.replication_times):.3f}, TOP3. {np.mean(top3):.3f}, conf. {np.std(top3)*1.96/np.sqrt(opt.replication_times):.3f}, Matching. {np.mean(matching):.3f}, conf. {np.std(matching)*1.96/np.sqrt(opt.replication_times):.3f}"
+    if opt.mm:
+        msg_final += f', Multimodality. {np.mean(multi):.3f}, conf. {np.std(multi)*1.96/np.sqrt(opt.replication_times):.3f}'
     logger.info(msg_final)
     
 if __name__ == "__main__":

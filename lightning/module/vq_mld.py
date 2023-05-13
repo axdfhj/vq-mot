@@ -65,6 +65,7 @@ class vq_diffusion(pl.LightningModule):
         self.automatic_optimization = False
         self.save_hyperparameters()
         self.evaluation_epoch_init()
+        self.mm = False
     
     def inv_transform(self, data):
         return data * self.std + self.mean
@@ -78,6 +79,9 @@ class vq_diffusion(pl.LightningModule):
         self.matching_score_pred = 0
         self.nb_sample = 0
         self.motion_multimodality = []
+    
+    def set_mm(self, mm):
+        self.mm = mm
         
     def configure_optimizers(self):
         return {"optimizer":self.optimizer}
@@ -105,25 +109,23 @@ class vq_diffusion(pl.LightningModule):
         return loss
     
     def evaluation_step(self, batch, mm=False):
+        mm = self.mm
         word_embeddings, pos_one_hots, clip_text, sent_len, pose, m_length, token, name = batch
-        bs, seq = pose.shape[:2]
+        bs, seq = pose.shape[:2] # 32 * 263
         num_joints = 21 if pose.shape[-1] == 251 else 22
         
-
-        feat_clip_text = self.clip_model.encode_text(clip_text).float()
         sample_times = 30 if mm else 1
+        feat_clip_text = self.clip_model.encode_text(clip_text).float().repeat(sample_times, 1, 1)
+        m_token = [int((int((m_length[k] - 2) / 2) - 1) / 2) + 1 for k in range(bs)]
+        pred_index, logits = self.denoiser.sample_motion_index(feat_clip_text, torch.tensor(m_token).repeat(sample_times).cuda())
         motion_multimodality_batch = []
         for i in range(sample_times):
             pred_pose_eval = torch.zeros((bs, seq, pose.shape[-1])).cuda()
             pred_len = torch.ones(bs).long()
             
-            # try:
-            m_token = [int((int((m_length[k] - 2) / 2) - 1) / 2) + 1 for k in range(bs)]
-            pred_index, logits = self.denoiser.sample_motion_index(feat_clip_text, torch.tensor(m_token).cuda())
-            # except:
-            #     index_motion = torch.ones(1,1).cuda().long()
             for k in range(bs):
-                index_motion = pred_index[k:k+1, :m_token[k]]
+                temp_k = bs * i + k
+                index_motion = pred_index[temp_k:temp_k+1, :m_token[k]]
                 pred_pose = self.net.forward_decoder(index_motion)
                 cur_len = pred_pose.shape[1]
 
@@ -161,14 +163,48 @@ class vq_diffusion(pl.LightningModule):
         if mm:
             self.motion_multimodality.append(torch.cat(motion_multimodality_batch, dim=1))
     
+    def list_gather(self, value_list):
+        value = torch.cat(value_list, dim=0)
+        output_list = [torch.zeros_like(value) for i in range(4)]
+        torch.distributed.barrier()
+        torch.distributed.all_gather(output_list, value)
+        gather_result = torch.cat(output_list, dim=0).cpu().numpy()
+        return gather_result
+    
+    def value_gather(self, value):
+        value = torch.Tensor(value).cuda()
+        output_list = [torch.zeros_like(value) for i in range(4)]
+        torch.distributed.barrier()
+        torch.distributed.all_gather(output_list, value)
+        gather_result = torch.cat(output_list, dim=0).sum().cpu().numpy()
+        return gather_result
+    
+    def rprecision_gather(self, value):
+        value = torch.Tensor(value).reshape(1, -1).cuda()
+        output_list = [torch.zeros_like(value) for i in range(4)]
+        torch.distributed.barrier()
+        torch.distributed.all_gather(output_list, value)
+        gather_result = torch.cat(output_list, dim=0).sum(dim=0).cpu().numpy()
+        return gather_result
+    
     def evaluation_epoch_end(self, mm=False):
-        motion_annotation_np = torch.cat(self.motion_annotation_list, dim=0).cpu().numpy()
-        motion_pred_np = torch.cat(self.motion_pred_list, dim=0).cpu().numpy()
+        mm = self.mm
+        # print(f'{self.local_rank}: {self.nb_sample}')
+        self.nb_sample = self.nb_sample * 4
+        # print(f'{self.local_rank}: {self.nb_sample}')
+        self.R_precision_real = self.rprecision_gather(self.R_precision_real.astype(np.float32))
+        self.R_precision = self.rprecision_gather(self.R_precision.astype(np.float32))
+        self.matching_score_real = self.value_gather([self.matching_score_real.item()])
+        self.matching_score_pred = self.value_gather([self.matching_score_pred.item()])
+        # motion_annotation_np = torch.cat(self.motion_annotation_list, dim=0).cpu().numpy()
+        motion_annotation_np = self.list_gather(self.motion_annotation_list)
+        # motion_pred_np = torch.cat(self.motion_pred_list, dim=0).cpu().numpy()
+        motion_pred_np = self.list_gather(self.motion_pred_list)
         gt_mu, gt_cov  = calculate_activation_statistics(motion_annotation_np)
         mu, cov= calculate_activation_statistics(motion_pred_np)
 
-        diversity_real = calculate_diversity(motion_annotation_np, 300 if self.nb_sample > 300 else 63)
-        diversity = calculate_diversity(motion_pred_np, 300 if self.nb_sample > 300 else 63)
+        diversity_real = calculate_diversity(motion_annotation_np, 300 if self.nb_sample > 300 else 100)
+        diversity = calculate_diversity(motion_pred_np, 300 if self.nb_sample > 300 else 100)
 
         R_precision_real = self.R_precision_real / self.nb_sample
         R_precision = self.R_precision / self.nb_sample
@@ -178,19 +214,27 @@ class vq_diffusion(pl.LightningModule):
         
         multimodality=0
         if mm:
-            motion_multimodality = torch.cat(self.motion_multimodality, dim=0).cpu().numpy()
+            # motion_multimodality = torch.cat(self.motion_multimodality, dim=0).cpu().numpy()
+            motion_multimodality = self.list_gather(self.motion_multimodality)
             multimodality = calculate_multimodality(motion_multimodality, 10)
         
         fid = calculate_frechet_distance(gt_mu, gt_cov, mu, cov)
-        if mm:
-            msg = f'fid: {fid}, matching_score: {matching_score_pred}, r1: {R_precision[0]}, r2: {R_precision[1]}, r3: {R_precision[2]}, diversity: {diversity}, multimodality: {multimodality}'
-            self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity, "multimodality": multimodality})
+        if self.local_rank == 0:
+            if mm:
+                msg = f'epoch:{self.current_epoch} fid: {fid}, matching_score: {matching_score_pred}, r1: {R_precision[0]}, r2: {R_precision[1]}, r3: {R_precision[2]}, diversity: {diversity}, multimodality: {multimodality}'
+                self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity, "multimodality": multimodality})
+            else:
+                msg = f'epoch:{self.current_epoch} fid: {fid}, matching_score: {matching_score_pred}, r1: {R_precision[0]}, r2: {R_precision[1]}, r3: {R_precision[2]}, diversity: {diversity}'
+                self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity})
+            self.run_logger.info(msg)
+            print(f'R_precision_real {R_precision_real}')
+            print(f'matching_score_real {matching_score_real}')
         else:
-            msg = f'fid: {fid}, matching_score: {matching_score_pred}, r1: {R_precision[0]}, r2: {R_precision[1]}, r3: {R_precision[2]}, diversity: {diversity}'
-            self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity})
-        self.run_logger.info(msg)
-        print(f'R_precision_real {R_precision_real}')
-        print(f'matching_score_real {matching_score_real}')
+            if mm:
+                self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity, "multimodality": multimodality})
+            else:
+                self.log_dict({"fid": fid, "matching_score": matching_score_pred, "r1": R_precision[0], "r2": R_precision[1], "r3": R_precision[2], "diversity": diversity})
+            
         
         self.evaluation_epoch_init()
         return fid, diversity, R_precision, matching_score_pred, multimodality

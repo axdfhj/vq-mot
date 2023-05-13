@@ -9,7 +9,7 @@ transformer_config:
   condition_seq_len: 77    ###### 77 for clip and 256 for dalle
   content_seq_len: 50  # 32 x 32
   content_spatial_size: [1, 50]
-  n_embd: 1024 # the dim of embedding dims
+  n_embd: 768 # the dim of embedding dims
   condition_dim: 512
   n_head: 16 # 
   attn_pdrop: 0.0
